@@ -1,6 +1,8 @@
+from future.utils import iteritems
+import math
+
 import numpy as np
 import pandas as pd
-import math
 
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
@@ -17,6 +19,7 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.ensemble import AdaBoostRegressor
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
 
 from nltk.corpus import stopwords
 from string import printable
@@ -61,31 +64,41 @@ def run_LogisticRegression(X, y, X_test=None):
     else:
         return lr
 
-def run_RandomForestClassifier(X, y, X_test=None, n_estimators=10, oob_score=False, n_jobs=-1, max_depth=None):
-    rfc = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, oob_score=oob_score, n_jobs=n_jobs)
+def run_RandomForestClassifier(X, y, X_test=None, **kwargs):
+    rfc = RandomForestClassifier(**kwargs)
     rfc.fit(X, y)
-    if X_test != None:
+    if X_test is not None:
         return rfc, rfc.predict(X_test)
     else:
         return rfc
 
-def run_lSVC(X, y, X_test=None):
-    lSVC = LinearSVC()
+def run_lSVC(X, y, X_test=None, **kwargs):
+    lSVC = LinearSVC(**kwargs)
     lSVC.fit(X, y)
     if X_test != None:
         return lSVC, lSVC.predict(X_test)
     else:
         return lSVC
 
-def run_SVC(X, y, X_test=None, C=1.0, kernel='rbf', degree=3, scale=True):
+def run_SVC(X, y, X_test=None, scale=True, **kwargs):
+    # All kwargs are all passed along to SVC object
+    model_args = {'model__{}'.format(k): v for k, v in iteritems(kwargs)}
+
     if scale:
-        X_new = StandardScaler().fit_transform(X)
-    svc = SVC(C=1.0, kernel=kernel, degree=degree)
-    svc.fit(X_new)
-    if X_test != None:
-        return svc, svc.predict(X_test)
+        model = Pipeline([
+            ('scaler', StandardScaler),
+            ('model', SVC)
+        ])
     else:
-        return svc
+        model = Pipeline([('model', SVC)])
+
+    model.set_params(**model_args)
+
+    model.fit(X, y)
+    if X_test is not None:
+        return model, model.predict(X_test)
+    else:
+        return model
 
 def run_KNeighborsClassifier(X, y, X_test=None, n_neighbors=5, weights='uniform', metric='minkowski', n_jobs=-1):
     knn = KNeighborsClassifier(n_neighbors=3)
@@ -118,9 +131,38 @@ def run_GaussianNB(X, y, priors=None):
     else:
         return gnb
 
+# A bunch of these functions are super repeditive
+# This is much more abstract and replaces a lot of these
+def run_model(cls, X, y, X_test=None, scale=False, **kwargs):
+    # All kwargs are all passed along to SVC object
+    model_args = {'model__{}'.format(k): v for k, v in iteritems(kwargs)}
+
+    if scale:
+        model = Pipeline([
+            ('scaler', StandardScaler),
+            ('model', cls)
+        ])
+    else:
+        model = Pipeline([('model', cls)])
+
+    # Pass all given args to the specified model
+    model.set_params(**model_args)
+    # Fit the model to the given training data
+    model.fit(X, y)
+
+    if X_test is not None:
+        return model, model.predict(X_test)
+    else:
+        return model
+
+# example usage
+# run_model(RandomForestRegressor, X, y, X_test, scale=False, n_estimators=10, n_jobs=-1)
+
+
 # Boosting
 def run_RandomForestRegressor(n_estimators=10,  criterion='mse', max_depth=None, oob_score=False, n_jobs=-1, random_state=None):
     rfr = RandomForestRegressor(n_estimators=n_estimators,  criterion=criterion, max_depth=max_depth, oob_score=oob_score, n_jobs=n_jobs, random_state=random_state)
+    # X and y weren't passed in
     rfr.fit(X, y)
     if X_test != None:
         return rfr, rfr.predict(X_test)
@@ -275,7 +317,8 @@ def plot_embedding(X, y, title=None):
         plt.title(title, fontsize=16)
 
 def run_PCA(df, n_components=None):
-    return PCA(n_components=components).fit_transform(df)
+    pca = PCA(n_components=components).fit(df)
+    return pca, pca.transform(df)
 
 
 #Miscellaneous
@@ -290,31 +333,31 @@ def make_csv(dictionary, name_order, path):
 def load_and_condition_MNIST_data():
     ''' loads and shapes MNIST image data '''
     (X_train, y_train), (X_test, y_test) = mnist.load_data()
-    print "\nLoaded MNIST images"
+    print("\nLoaded MNIST images")
     theano.config.floatX = 'float32'
     X_train = X_train.astype(theano.config.floatX) #before conversion were uint8
     X_test = X_test.astype(theano.config.floatX)
     X_train.resize(len(y_train), 784) # 28 pix x 28 pix = 784 pixels
     X_test.resize(len(y_test), 784)
-    print '\nFirst 5 labels of MNIST y_train: ', y_train[:5]
+    print('\nFirst 5 labels of MNIST y_train: ', y_train[:5])
     y_train_ohe = np_utils.to_categorical(y_train)
-    print '\nFirst 5 labels of MNIST y_train (one-hot):\n', y_train_ohe[:5]
-    print ''
+    print('\nFirst 5 labels of MNIST y_train (one-hot):\n', y_train_ohe[:5])
+    print('')
     return X_train, y_train, X_test, y_test, y_train_ohe
 
 def print_output(model, y_train, y_test, rng_seed):
     '''prints model accuracy results'''
     y_train_pred = model.predict_classes(X_train, verbose=0)
     y_test_pred = model.predict_classes(X_test, verbose=0)
-    print '\nRandom number generator seed: ', rng_seed
-    print '\nFirst 30 labels:      ', y_train[:30]
-    print 'First 30 predictions: ', y_train_pred[:30]
+    print('\nRandom number generator seed: ', rng_seed)
+    print('\nFirst 30 labels:      ', y_train[:30])
+    print('First 30 predictions: ', y_train_pred[:30])
     train_acc = np.sum(y_train == y_train_pred, axis=0) / X_train.shape[0]
-    print '\nTraining accuracy: %.2f%%' % (train_acc * 100)
+    print('\nTraining accuracy: %.2f%%' % (train_acc * 100))
     test_acc = np.sum(y_test == y_test_pred, axis=0) / X_test.shape[0]
-    print 'Test accuracy: %.2f%%' % (test_acc * 100)
+    print('Test accuracy: %.2f%%' % (test_acc * 100))
     if test_acc < 0.95:
-        print '\nMan, your test accuracy is bad! '
-        print "Can't you get it up to 95%?"
+        print('\nMan, your test accuracy is bad! ')
+        print("Can't you get it up to 95%?")
     else:
-        print "\nYou've made some improvements, I see..."
+        print("\nYou've made some improvements, I see...")
